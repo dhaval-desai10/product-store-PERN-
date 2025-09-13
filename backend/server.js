@@ -24,6 +24,35 @@ app.use(helmet()) // helmet is security middleware that helps you project your
 
 app.use(morgan("dev")) // log the request to the console
 
+// apply arcjet rate-limit to all routes
+
+app.use(async (req, res, next) => {
+    try {
+        const decision = await arcjet.protect(req, {
+            requested: 1 // specify that each request consumes 1 token
+        });
+        if (!decision.granted && decision.reason.isRateLimit()) {
+            return res.status(429).json({ message: "Too many requests, please try again later" });
+        }
+        else if (decision.reason.isBot()) {
+            return res.status(403).json({ message: "bot access denied" });
+        }
+        else if (!decision.granted) {
+            return res.status(500).json({ message: "forbidden" });
+        }
+        // check for spoofed bots
+        if (decision.results && decision.results.some(result => result.reason.isBot() && result.reason.isSpoofed)) {
+            console.log("Spoofed bot detected:", req.ip);
+            return res.status(403).json({ message: "bot access denied" });
+        }
+        next();
+
+    } catch (error) {
+        console.error("Error in rate limiting middleware:", error);
+        res.status(500).json({ message: "arcjet error" });
+    }
+});
+
 
 app.use("/api/products", productRoutes);
 
